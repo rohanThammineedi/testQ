@@ -14,4 +14,6 @@ public class InstanceConstants {
     public static final String sourceProkectKey = dotenv.get("JIRA_SOURCE_PROJECT_KEY");
     public static final String targetProjectKey = dotenv.get("JIRA_TARGET_PROJECT_KEY");
 
+    public static final String attachmentPath = "/Users/rohankumar/Desktop/attachements/";   // '/Users/rohankumar/Desktop/attachements '
+
 }

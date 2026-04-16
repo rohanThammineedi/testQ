@@ -9,7 +9,6 @@
 // import org.springframework.http.HttpEntity;
 // import org.springframework.http.HttpHeaders;
 // import org.springframework.http.HttpMethod;
-// import org.springframework.http.MediaType;
 // import org.springframework.http.ResponseEntity;
 // import org.springframework.stereotype.Service;
 // import org.springframework.web.client.RestTemplate;
@@ -62,7 +61,7 @@
 //         String encoded = Base64.getEncoder().encodeToString(credentials.getBytes());
 //         HttpHeaders headers = new HttpHeaders();
 //         headers.set("Authorization", "Basic " + encoded);
-//         headers.setContentType(MediaType.APPLICATION_JSON);
+//         headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 //         return headers;
 //     }
 
@@ -73,6 +72,7 @@
 //         fields.setSummary(createRandomString());
 //         fields.setProject(new Project(InstanceConstants.sourceProkectKey));
 //         fields.setIssueType(new IssueType("Task"));
+//         fields.setDescription(buildDescription());  // <-- create with description
 
 //         Map<String, Object> body = Map.of("fields", fields);
 //         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, authHeaders());
@@ -108,7 +108,7 @@
 
 //     public boolean verifySync() throws InterruptedException {
 
-//         // Step 1: Create issue on source
+//         // Step 1: Create issue on source with summary + description
 //         String sourceIssueKey = createIssue();
 //         log.debug("Source Issue Created {}", sourceIssueKey);
 
@@ -136,7 +136,7 @@
 //             return false;
 //         }
 
-//         // Step 5: Compare summary
+//         // Step 5: Compare summary after create
 //         String sourceSummary = sourceIssue.getFields().getSummary();
 //         String targetSummary = targetIssue.getFields().getSummary();
 //         log.info("Source summary : {}", sourceSummary);
@@ -144,13 +144,21 @@
 //         boolean summaryMatches = sourceSummary != null && sourceSummary.equals(targetSummary);
 //         log.info("Summary match  : {}", summaryMatches);
 
-//         // Step 6: Update summary check
+//         // Step 6: Compare description after create
+//         AdfNode sourceDescription = sourceIssue.getFields().getDescription();
+//         AdfNode targetDescription = targetIssue.getFields().getDescription();
+//         log.info("Source description : {}", sourceDescription);
+//         log.info("Target description : {}", targetDescription);
+//         boolean descriptionMatches = sourceDescription != null && sourceDescription.equals(targetDescription);
+//         log.info("Description match  : {}", descriptionMatches);
+
+//         // Step 7: Update summary check
 //         boolean updateSummaryCheck = updateSummaryCheck(sourceIssueKey, targetIssue.getKey());
 
-//         // Step 7: Description sync check
-//         boolean descriptionSynced = verifyDescriptionSync(sourceIssueKey, targetIssue.getKey());
+//         // Step 8: Update description check
+//         boolean updateDescriptionCheck = verifyDescriptionSync(sourceIssueKey, targetIssue.getKey());
 
-//         return summaryMatches && updateSummaryCheck && descriptionSynced;
+//         return summaryMatches && descriptionMatches && updateSummaryCheck && updateDescriptionCheck;
 //     }
 
 //     // ===================== SUMMARY UPDATE CHECK =====================
@@ -180,14 +188,14 @@
 //         return summaryMatches;
 //     }
 
-//     // ===================== DESCRIPTION SYNC CHECK =====================
+//     // ===================== DESCRIPTION UPDATE CHECK =====================
 
 //     private boolean verifyDescriptionSync(String sourceIssueKey, String targetIssueKey)
 //             throws InterruptedException {
 
-//         AdfNode description = buildDescription();
+//         AdfNode newDescription = buildDescription();
 
-//         Map<String, Object> fields = Map.of("description", description);
+//         Map<String, Object> fields = Map.of("description", newDescription);
 //         Map<String, Object> body = Map.of("fields", fields);
 
 //         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, authHeaders());
@@ -210,7 +218,7 @@
 
 //         boolean descriptionMatches = sourceDescription != null
 //                 && sourceDescription.equals(targetDescription);
-//         log.info("Description match  : {}", descriptionMatches);
+//         log.info("Description update match: {}", descriptionMatches);
 
 //         return descriptionMatches;
 //     }
@@ -392,26 +400,36 @@
 //     }
 // }
 
-
 package qfTest.QF.Test.service;
 
+import java.io.File;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.datafaker.Faker;
 import qfTest.QF.Test.constants.InstanceConstants;
+import qfTest.QF.Test.dto.Attachment;
+import qfTest.QF.Test.dto.AttachmentResponse;
 import qfTest.QF.Test.dto.Fields;
 import qfTest.QF.Test.dto.IssueResponse;
 import qfTest.QF.Test.dto.IssueType;
@@ -427,6 +445,8 @@ import qfTest.QF.Test.model.node.block.CodeBlock;
 import qfTest.QF.Test.model.node.block.Doc;
 import qfTest.QF.Test.model.node.block.Heading;
 import qfTest.QF.Test.model.node.block.ListItem;
+import qfTest.QF.Test.model.node.block.Media;
+import qfTest.QF.Test.model.node.block.MediaSingle;
 import qfTest.QF.Test.model.node.block.OrderedList;
 import qfTest.QF.Test.model.node.block.Panel;
 import qfTest.QF.Test.model.node.block.Paragraph;
@@ -456,7 +476,7 @@ public class JiraIssueService {
         String encoded = Base64.getEncoder().encodeToString(credentials.getBytes());
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Basic " + encoded);
-        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        headers.setContentType(MediaType.APPLICATION_JSON);
         return headers;
     }
 
@@ -467,7 +487,7 @@ public class JiraIssueService {
         fields.setSummary(createRandomString());
         fields.setProject(new Project(InstanceConstants.sourceProkectKey));
         fields.setIssueType(new IssueType("Task"));
-        fields.setDescription(buildDescription());  // <-- create with description
+        fields.setDescription(buildDescription());
 
         Map<String, Object> body = Map.of("fields", fields);
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, authHeaders());
@@ -553,7 +573,11 @@ public class JiraIssueService {
         // Step 8: Update description check
         boolean updateDescriptionCheck = verifyDescriptionSync(sourceIssueKey, targetIssue.getKey());
 
-        return summaryMatches && descriptionMatches && updateSummaryCheck && updateDescriptionCheck;
+        // Step 9: Attachment sync check
+        boolean attachmentSynced = verifyAttachmentSync(sourceIssueKey, targetIssue.getKey());
+
+        return summaryMatches && descriptionMatches && updateSummaryCheck
+                && updateDescriptionCheck && attachmentSynced;
     }
 
     // ===================== SUMMARY UPDATE CHECK =====================
@@ -616,6 +640,169 @@ public class JiraIssueService {
         log.info("Description update match: {}", descriptionMatches);
 
         return descriptionMatches;
+    }
+
+    // ===================== ATTACHMENT UPLOAD =====================
+
+    private List<AttachmentResponse> uploadAttachments(String issueKey, List<String> filenames) {
+        List<AttachmentResponse> responses = new ArrayList<>();
+
+        for (String filename : filenames) {
+            try {
+                File file = new File(InstanceConstants.attachmentPath + filename);
+
+                HttpHeaders headers = new HttpHeaders();
+                String credentials = InstanceConstants.email + ":" + InstanceConstants.token;
+                String encoded = Base64.getEncoder().encodeToString(credentials.getBytes());
+                headers.set("Authorization", "Basic " + encoded);
+                headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+                headers.set("X-Atlassian-Token", "no-check");
+
+                MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+                body.add("file", new FileSystemResource(file));
+
+                HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
+
+                String url = InstanceConstants.sourceInstance + "/rest/api/2/issue/" + issueKey + "/attachments";
+                ResponseEntity<AttachmentResponse[]> response = restTemplate.exchange(
+                        url, HttpMethod.POST, request, AttachmentResponse[].class);
+
+                if (response.getBody() != null) {
+                    responses.addAll(Arrays.asList(response.getBody()));
+                    log.info("Uploaded attachment: {} size: {} mimeType: {}",
+                            filename,
+                            response.getBody()[0].getSize(),
+                            response.getBody()[0].getMimeType());
+                }
+            } catch (Exception e) {
+                log.error("Failed to upload attachment: {} — {}", filename, e.getMessage());
+            }
+        }
+        return responses;
+    }
+
+    // ===================== RESOLVE MEDIA ID =====================
+
+    private String resolveMediaId(String contentUrl) {
+        try {
+            String fullUrl = InstanceConstants.sourceInstance + contentUrl;
+            HttpURLConnection conn = (HttpURLConnection) new URL(fullUrl).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Authorization", "Basic " +
+                    Base64.getEncoder().encodeToString(
+                            (InstanceConstants.email + ":" + InstanceConstants.token)
+                                    .getBytes(StandardCharsets.UTF_8)));
+            conn.setInstanceFollowRedirects(false);
+
+            int status = conn.getResponseCode();
+            if (status == 302 || status == 303 || status == 307) {
+                String location = conn.getHeaderField("Location");
+                // https://api.media.atlassian.com/file/{mediaUUID}/binary?...
+                String[] parts = location.split("/file/");
+                if (parts.length > 1) {
+                    String mediaId = parts[1].split("/")[0];
+                    log.info("Resolved mediaId: {} for contentUrl: {}", mediaId, contentUrl);
+                    return mediaId;
+                }
+            }
+            conn.disconnect();
+        } catch (Exception e) {
+            log.error("Failed to resolve mediaId from: {} — {}", contentUrl, e.getMessage());
+        }
+        return null;
+    }
+
+    // ===================== BUILD MEDIA SINGLE NODE =====================
+
+    private MediaSingle buildMediaSingle(String mediaId, String filename) {
+        Media.MediaAttrs mediaAttrs = new Media.MediaAttrs();
+        mediaAttrs.setId(mediaId);
+        mediaAttrs.setType("file");
+        mediaAttrs.setCollection("");
+        mediaAttrs.setAlt(filename);
+
+        Media media = new Media();
+        media.setType("media");
+        media.setAttrs(mediaAttrs);
+
+        MediaSingle.MediaSingleAttrs mediaSingleAttrs = new MediaSingle.MediaSingleAttrs();
+        mediaSingleAttrs.setLayout("center");
+
+        MediaSingle mediaSingle = new MediaSingle();
+        mediaSingle.setType("mediaSingle");
+        mediaSingle.setAttrs(mediaSingleAttrs);
+        mediaSingle.setContent(new ArrayList<>(List.of(media)));
+
+        return mediaSingle;
+    }
+    // ===================== ATTACHMENT SYNC CHECK =====================
+
+    private boolean verifyAttachmentSync(String sourceIssueKey, String targetIssueKey)
+            throws InterruptedException {
+
+        // Step 1: Upload max 2 attachments to source
+        // List<String> filenames = List.of("test.pdf", "test.png");
+        List<String> filenames = List.of("test.pdf");
+        List<AttachmentResponse> uploaded = uploadAttachments(sourceIssueKey, filenames);
+
+        if (uploaded.isEmpty()) {
+            log.error("No attachments uploaded — skipping attachment sync check");
+            return false;
+        }
+
+        // Step 2: Resolve mediaIds and build inline description
+        List<AdfNode> inlineNodes = new ArrayList<>();
+        inlineNodes.add(buildParagraph("Description with inline attachments:"));
+
+        for (AttachmentResponse att : uploaded) {
+            String mediaId = resolveMediaId(att.getContentUrl());
+            if (mediaId != null) {
+                inlineNodes.add(buildMediaSingle(mediaId, att.getFilename()));
+            }
+        }
+
+        // Step 3: Update description with inline media nodes
+        Doc doc = new Doc();
+        doc.setType("doc");
+        doc.setContent(inlineNodes);
+
+        Map<String, Object> fields = Map.of("description", doc);
+        Map<String, Object> body = Map.of("fields", fields);
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, authHeaders());
+
+        String url = InstanceConstants.sourceInstance + "/rest/api/3/issue/" + sourceIssueKey;
+        restTemplate.exchange(url, HttpMethod.PUT, request, Void.class);
+        log.info("Updated description with inline attachments on: {}", sourceIssueKey);
+
+        // Step 4: Wait for sync
+        log.info("Waiting for attachment sync...");
+        Thread.sleep(SYNC_WAIT_MS);
+
+        // Step 5: Fetch target and validate attachments
+        IssueResponse targetIssue = getTargetIssue(targetIssueKey);
+        List<Attachment> targetAttachments = targetIssue.getFields().getAttachments();
+
+        if (targetAttachments == null || targetAttachments.isEmpty()) {
+            log.error("No attachments found on target issue: {}", targetIssueKey);
+            return false;
+        }
+
+        // Step 6: Compare filename + size + mimeType
+        boolean allMatch = uploaded.stream()
+                .allMatch(source -> targetAttachments.stream()
+                        .anyMatch(target -> target.getFilename().equals(source.getFilename()) &&
+                                target.getSize().equals(source.getSize()) &&
+                                target.getMimeType().equals(source.getMimeType())));
+
+        log.info("Uploaded attachments  : {}", uploaded.stream()
+                .map(a -> a.getFilename() + " (" + a.getSize() + " bytes, " + a.getMimeType() + ")")
+                .toList());
+        log.info("Target attachments    : {}", targetAttachments.stream()
+                .map(a -> a.getFilename() + " (" + a.getSize() + " bytes, " + a.getMimeType() + ")")
+                .toList());
+        log.info("Attachment sync match : {}", allMatch);
+
+        return allMatch;
     }
 
     // ===================== ADF BUILDERS =====================
